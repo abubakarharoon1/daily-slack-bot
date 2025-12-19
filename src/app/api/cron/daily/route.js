@@ -6,6 +6,7 @@ import { generateText } from "@/app/lib/llm.js";
 import { cleanText, prependChannelMention } from "@/app/lib/textFormat.js";
 import { jaccardSimilarity } from "@/app/lib/similarity.js";
 import { postSlackMessage } from "@/app/lib/slack.js";
+import { getSummaryMemory, updateSummaryMemory } from "@/app/lib/summaryMemory.js";
 
 export const runtime = "nodejs";
 
@@ -24,10 +25,11 @@ export async function GET(request) {
       );
     }
 
-    const recentPosts = await getRecentPosts();
+    const recentPosts = await getRecentPosts(30);
     const lastPost = recentPosts?.[0] || "";
 
-    const prompt = buildDailyPrompt(recentPosts);
+    const summaryMemory = await getSummaryMemory();
+    const prompt = buildDailyPrompt(summaryMemory);
     const similarityThreshold = 0.35;
     const maxAttempts = 3;
     let finalMessage = "";
@@ -40,6 +42,7 @@ export async function GET(request) {
       if (finalMessage.length > 20 && similarityScore < similarityThreshold) break;
     }
 
+    await updateSummaryMemory(finalMessage);
     await savePostToHistory(finalMessage);
 
     if (config.sendToSlack) {
