@@ -42,8 +42,15 @@ export async function GET(request) {
       if (finalMessage.length > 20 && similarityScore < similarityThreshold) break;
     }
 
-    await updateSummaryMemory(finalMessage);
     await savePostToHistory(finalMessage);
+    let summaryUpdated = false;
+    try {
+      await updateSummaryMemory(finalMessage);
+      summaryUpdated = true;
+    } catch (e) {
+      console.error("updateSummaryMemory failed:", e, "cause:", e?.cause);
+      summaryError = e?.message || "summary_failed";
+    }
 
     if (config.sendToSlack) {
       const slackResult = await postSlackMessage(finalMessage);
@@ -54,6 +61,7 @@ export async function GET(request) {
         ts: slackResult.ts,
         similarity: Number(similarityScore.toFixed(2)),
         preview: finalMessage,
+        summaryUpdated,
       });
     }
 
@@ -62,9 +70,11 @@ export async function GET(request) {
       sent: false,
       similarity: Number(similarityScore.toFixed(2)),
       preview: finalMessage,
+      summaryUpdated,
       note: "SEND_TO_SLACK=false so message was not posted",
     });
   } catch (error) {
+    console.error("cron failed:", error, "cause:", error?.cause);
     return NextResponse.json(
       { ok: false, error: error?.message || "unknown_error" },
       { status: 500 }
