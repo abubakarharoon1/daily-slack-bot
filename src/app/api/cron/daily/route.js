@@ -6,13 +6,13 @@ import { generateText } from "@/app/lib/llm.js";
 import { cleanText, prependChannelMention } from "@/app/lib/textFormat.js";
 import { jaccardSimilarity } from "@/app/lib/similarity.js";
 import { postSlackMessage } from "@/app/lib/slack.js";
-import { getSummaryMemory, updateSummaryMemory } from "@/app/lib/summaryMemory.js";
+import { getSummaryMemory } from "@/app/lib/summaryMemory.js";
 
 export const runtime = "nodejs";
 
 export async function GET(request) {
   try {
-  
+
     if (!isCronAuthorized(request)) {
       return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
     }
@@ -27,9 +27,10 @@ export async function GET(request) {
 
     const recentPosts = await getRecentPosts(30);
     const lastPost = recentPosts?.[0] || "";
-
-    const summaryMemory = await getSummaryMemory();
-    const prompt = buildDailyPrompt(summaryMemory);
+    const memory = getSummaryMemory("daily-slack");
+    const memoryVars = await memory.loadMemoryVariables({});
+    const summaryText = memoryVars.history || "";
+    const prompt = buildDailyPrompt(summaryText);
     const similarityThreshold = 0.35;
     const maxAttempts = 3;
     let finalMessage = "";
@@ -45,7 +46,10 @@ export async function GET(request) {
     await savePostToHistory(finalMessage);
     let summaryUpdated = false;
     try {
-      await updateSummaryMemory(finalMessage);
+      await memory.saveContext(
+        { input: "Daily Slack Post" },
+        { output: finalMessage }
+      );
       summaryUpdated = true;
     } catch (e) {
       console.error("updateSummaryMemory failed:", e, "cause:", e?.cause);

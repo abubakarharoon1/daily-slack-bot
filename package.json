@@ -9,12 +9,13 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@langchain/openai": "^1.2.0",
-    "@langchain/redis": "^1.0.1",
+    "@langchain/community": "^0.3.28",
+    "@langchain/core": "^0.3.79",
+    "@langchain/openai": "^0.3.14",
     "@slack/web-api": "^7.13.0",
     "@upstash/redis": "^1.35.8",
     "ioredis": "^5.8.2",
-    "langchain": "^1.2.2",
+    "langchain": "^0.3.6",
     "next": "16.0.10",
     "react": "19.2.1",
     "react-dom": "19.2.1"
