@@ -6,7 +6,7 @@ import { generateText } from "@/app/lib/llm.js";
 import { cleanText, prependChannelMention } from "@/app/lib/textFormat.js";
 import { jaccardSimilarity } from "@/app/lib/similarity.js";
 import { postSlackMessage } from "@/app/lib/slack.js";
-import { getSummaryMemory } from "@/app/lib/summaryMemory.js";
+import { getSummaryText, updateSummaryWithNewPost } from "@/app/lib/summaryMemory.js";
 
 export const runtime = "nodejs";
 
@@ -27,9 +27,7 @@ export async function GET(request) {
 
     const recentPosts = await getRecentPosts(30);
     const lastPost = recentPosts?.[0] || "";
-    const memory = getSummaryMemory("daily-slack");
-    const memoryVars = await memory.loadMemoryVariables({});
-    const summaryText = memoryVars.history || "";
+    const summaryText = await getSummaryText();
     const prompt = buildDailyPrompt(summaryText);
     const similarityThreshold = 0.35;
     const maxAttempts = 3;
@@ -45,14 +43,13 @@ export async function GET(request) {
 
     await savePostToHistory(finalMessage);
     let summaryUpdated = false;
+    let updatedSummary = "";
+    let summaryError;
     try {
-      await memory.saveContext(
-        { input: "Daily Slack Post" },
-        { output: finalMessage }
-      );
+      updatedSummary = await updateSummaryWithNewPost(finalMessage);
       summaryUpdated = true;
     } catch (e) {
-      console.error("updateSummaryMemory failed:", e, "cause:", e?.cause);
+      console.error("savePostAndRefreshSummary failed:", e, "cause:", e?.cause);
       summaryError = e?.message || "summary_failed";
     }
 
@@ -66,6 +63,7 @@ export async function GET(request) {
         similarity: Number(similarityScore.toFixed(2)),
         preview: finalMessage,
         summaryUpdated,
+        updatedSummaryPreview: updatedSummary ? updatedSummary.slice(0, 220) : "",
       });
     }
 
@@ -75,6 +73,8 @@ export async function GET(request) {
       similarity: Number(similarityScore.toFixed(2)),
       preview: finalMessage,
       summaryUpdated,
+      summaryError,
+      updatedSummaryPreview: updatedSummary ? updatedSummary.slice(0, 220) : "",
       note: "SEND_TO_SLACK=false so message was not posted",
     });
   } catch (error) {
