@@ -9,9 +9,6 @@ export const config = {
   sendToSlack: (process.env.SEND_TO_SLACK || "false").toLowerCase() === "true",
   cronSecret: process.env.CRON_SECRET || "",
 
-  historyKey: "daily-slack:history",
-  historyLimit: Number(process.env.HISTORY_LIMIT || 30),
-
   model: process.env.OPENAI_MODEL || "gpt-4o-mini",
   temperature: Number(process.env.OPENAI_TEMPERATURE || 0.8),
 };

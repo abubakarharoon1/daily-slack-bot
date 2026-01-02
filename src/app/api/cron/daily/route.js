@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { config, validateConfig, isCronAuthorized } from "@/app/lib/config.js";
-import { getRecentPosts, savePostToHistory } from "@/app/lib/redisMemory.js";
+import { getLastPost, setLastPost } from "@/app/lib/redisMemory.js";
 import { buildDailyPrompt } from "@/app/lib/prompt.js";
 import { generateText } from "@/app/lib/llm.js";
 import { cleanText, prependChannelMention } from "@/app/lib/textFormat.js";
@@ -9,6 +9,9 @@ import { postSlackMessage } from "@/app/lib/slack.js";
 import { getSummaryText, updateSummaryWithNewPost } from "@/app/lib/summaryMemory.js";
 
 export const runtime = "nodejs";
+const NS = "daily-slack";
+const similarityThreshold = 0.35;
+const maxAttempts = 3;
 
 export async function GET(request) {
   try {
@@ -25,12 +28,11 @@ export async function GET(request) {
       );
     }
 
-    const recentPosts = await getRecentPosts(30);
-    const lastPost = recentPosts?.[0] || "";
-    const summaryText = await getSummaryText();
+    const lastPost = await getLastPost(NS);
+    const summaryText = await getSummaryText(NS);
+
     const prompt = buildDailyPrompt(summaryText);
-    const similarityThreshold = 0.35;
-    const maxAttempts = 3;
+
     let finalMessage = "";
     let similarityScore = 0;
 
@@ -41,29 +43,40 @@ export async function GET(request) {
       if (finalMessage.length > 20 && similarityScore < similarityThreshold) break;
     }
 
-    await savePostToHistory(finalMessage);
+    if (finalMessage.length <= 20) {
+      throw new Error("Generated message too short");
+    }
+    let slackTs;
+    if (config.sendToSlack) {
+      const slackResult = await postSlackMessage(finalMessage);
+      slackTs = slackResult.ts;
+    }
+    await setLastPost(finalMessage, NS);
     let summaryUpdated = false;
     let updatedSummary = "";
     let summaryError;
-    try {
-      updatedSummary = await updateSummaryWithNewPost(finalMessage);
-      summaryUpdated = true;
-    } catch (e) {
-      console.error("savePostAndRefreshSummary failed:", e, "cause:", e?.cause);
-      summaryError = e?.message || "summary_failed";
+
+    const shouldCommit = config.sendToSlack ? Boolean(slackTs) : true;
+
+    if (shouldCommit) {
+      try {
+        updatedSummary = await updateSummaryWithNewPost(finalMessage, NS);
+        summaryUpdated = true;
+      } catch (e) {
+        console.error("updateSummaryWithNewPost failed:", e, "cause:", e?.cause);
+        summaryError = e?.message || "summary_failed";
+      }
     }
 
     if (config.sendToSlack) {
-      const slackResult = await postSlackMessage(finalMessage);
-
       return NextResponse.json({
         ok: true,
         sent: true,
-        ts: slackResult.ts,
+        ts: slackTs,
         similarity: Number(similarityScore.toFixed(2)),
         preview: finalMessage,
         summaryUpdated,
-        updatedSummaryPreview: updatedSummary ? updatedSummary.slice(0, 220) : "",
+        updatedSummaryPreview: updatedSummary ? updatedSummary : "",
       });
     }
 
@@ -74,7 +87,8 @@ export async function GET(request) {
       preview: finalMessage,
       summaryUpdated,
       summaryError,
-      updatedSummaryPreview: updatedSummary ? updatedSummary.slice(0, 220) : "",
+      summaryUsedInPrompt: summaryText,
+      updatedSummaryPreview: updatedSummary || "",
       note: "SEND_TO_SLACK=false so message was not posted",
     });
   } catch (error) {

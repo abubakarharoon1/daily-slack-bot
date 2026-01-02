@@ -6,11 +6,21 @@ const redis = new Redis({
   token: config.upstashRestToken,
 });
 
-export async function getRecentPosts() {
-  return (await redis.lrange(config.historyKey, 0, config.historyLimit - 1)) || [];
+const summaryKey = (ns) => `${ns}:summary`;
+const lastPostKey = (ns) => `${ns}:lastPost`;
+
+export async function getLastSummary(ns = "daily-slack") {
+  return (await redis.get(summaryKey(ns))) || "";
 }
 
-export async function savePostToHistory(text) {
-  await redis.lpush(config.historyKey, text);
-  await redis.ltrim(config.historyKey, 0, config.historyLimit - 1);
+export async function setLastSummary(text, ns = "daily-slack") {
+  await redis.set(summaryKey(ns), text || "");
+}
+
+export async function getLastPost(ns = "daily-slack") {
+  return (await redis.get(lastPostKey(ns))) || "";
+}
+
+export async function setLastPost(text, ns = "daily-slack") {
+  await redis.set(lastPostKey(ns), text || "");
 }
